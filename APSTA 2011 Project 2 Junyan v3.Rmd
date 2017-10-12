@@ -1,0 +1,292 @@
+---
+title: "APSTA 2011 Project 2"
+author: "Junyan Yao"
+date: "January 24, 2017"
+output: html_document
+---
+
+***Data Description***
+A total of 572 olive oil samples were collected from three regions of Italy: the North, the South, and Sardinia. Each region is further divided into areas, with the South having four areas, the North having three, and Sardinia having two. Each olive oil sample was chemically assayed and measured for eight different types of fatty acid. The eight fatty acids are palmitic, palmitoleic, stearic, oleic, linoleic, linolenic, arachidic, and eisenoic. Each measure represents the percentage of each fatty acid present in each olive oil sample. Using this data, we would like to explore the potential clustering options.
+
+***Import and display data***
+```{r}
+require(foreign)
+#olive <- read.dta("C:/Users/jyao/Downloads/olive.dta")
+olive <- read.dta("~/Documents/NYU/Jan Term/dataset/olive.dta")
+head(olive)
+tail(olive)
+summary(olive)
+
+
+var(olive$palmitic)
+var(olive$palmitol)
+var(olive$stearic)
+var(olive$oleic)
+var(olive$linoleic)
+var(olive$linoleni)
+var(olive$arachidi)
+var(olive$eicoseno)
+#The variance for each feasures are greater than 150, so there is no reason to drop any variables. 
+
+#bivariate plot for the original data
+pairs(olive[,(2:9)])
+#by looking at this bivariate plot, it is hard to tell any potential cluster numbers. By looking at some features, 
+```
+#Pre-Processing Transformations
+First, I explored the need to transform or rescale the features. To do this, I plotted the density for each feature measurement.Also, the clustering was done on the original scale, not principal components.
+```{r}
+#plot the density for each feature
+par(mfrow=c(2,4))
+plot(density(olive$palmitic))
+plot(density(olive$palmitol))
+plot(density(olive$stearic))
+plot(density(olive$oleic))
+plot(density(olive$linoleic))
+plot(density(olive$linoleni))
+plot(density(olive$arachidi))
+plot(density(olive$eicoseno))
+#There is some evidence of bimodality in some features; The distributions do not show extreme skew. The log transformation did not really improve a lot. So I will not consider log transformation here. it's telling you that there are two clusters identified by that one feature.  Transforms can CONFOUND this.  Only consider transforms in extreme cases in which ONE feature is highly highly skewed and the rest are not.  This could be useful for visualizing a bimodality, but likely not. Err on the side of not transforming. But we will consider scale the features as the variance is vary different for some features.
+
+#standardize the data
+olive.stdz <- olive;
+olive.stdz[,2:9] <- scale(olive[,2:9])
+
+#bivariate plot for standardized data
+par(mfrow=c(1,1))
+pairs(olive.stdz[,(2:9)])
+#bivariate plots using principal components on standardized data
+pairs(princomp(olive.stdz[,2:9])$scores)
+```
+
+#Hierarchical Clustering Analysis
+
+For this analysis, I would like to explore single, centroid, complete, ward and kmeans as potential clustering method for this dataset. 
+Single linkage is the method to find the nearest neighbor. Complete linkage can be refered to furthest neighbor. This is, all possible pairwise distances between elements are evaluated and the largest value is used as the distance between clasters A and B. Using this method, we can ensure all elements contained in them one cluster are near all elements in the other cluster. Centroid clustering assigns each newly joined cluster a set of coordinate values based on the multovariate mean value for all of the subjects contained within it. In ward's method, we are trying to find two clusters to join such that a total sum of squares associated with the proposed grouping increases by the smallest amount possible, 
+
+*** Single, Centroid, Complete, and Ward Dendogram***
+```{r}
+par(mfrow=c(2,2))
+#Single linkage hierarchical clustering
+hcl.single <- hclust(dist(olive.stdz[,2:9]),meth='single')
+plot(hcl.single,labels=F,main='Single linkage dendogram',xlab='',sub="")
+
+#centroid linkage hierarchical clustering
+hcl.centroid <- hclust(dist(olive.stdz[,2:9]),meth='centroid')
+plot(hcl.centroid,labels=F,main='Centroid linkage dendogram',xlab='',sub="")
+
+#complete linkage hierarchical clustering
+hcl.complete <- hclust(dist(olive.stdz[,2:9]),meth='complete')
+plot(hcl.complete,labels=F,main='Complete linkage dendogram',xlab='',sub="")
+
+
+#Ward linkage hierarchical clustering
+hcl.ward <- hclust(dist(olive.stdz[,2:9]),meth='ward.D2')
+plot(hcl.ward,labels=F,main='Ward linkage dendogram',xlab='',sub="")
+
+#By looking at the dendogram, we can rule out the single method obviously(it seems very stingy);I think ward dendogram looks evenly equal sized clustered (very clean). So I prefere ward method.
+
+#choose cluster solution by looking at the dendogram
+par(mfrow=c(2,2))
+plot(hcl.ward)
+rect.hclust(hcl.ward,k=3)
+plot(hcl.ward)
+rect.hclust(hcl.ward,k=4)
+plot(hcl.ward)
+rect.hclust(hcl.ward,k=5)
+plot(hcl.ward)
+rect.hclust(hcl.ward,k=6)
+```
+I think it is not obvious to find an optimal cluster solution by looking at the dendogram. But we still can see when we choose K=5, the cluster size is a little evenly separated compared with other cluster solutions. 
+
+***Choose cluster solution by looking at the Cg maximization***
+In this section, I would like to use two methods- Ward and kmean. The below results shows that when we choose 5 cluster solution, the Cg was maximized for both methods. 
+```{r}
+##############   Ward  ######################
+require(NbClust)
+NbClust(olive.stdz[,2:9],method='ward.D2',index='ch')
+
+#Show this in graph
+par(mfrow=c(1,1))
+plot(2:15,NbClust(olive.stdz[,2:9],method='ward.D2',index='ch')$All.index, type="l")
+abline(v=5,col="red")
+
+#For Ward method, when n=5 Cg is maximized;
+
+############# Kmeans   ###################
+c.crit <- function(km.obj) {
+    #based on k-means, for convenience due to amt of addl info in the km result object.
+    #cd be generalized.
+    sizes <- km.obj$size
+    n <- sum(sizes)
+    g <- length(sizes)
+    msW<-sum(km.obj$withinss)/(n-g)
+    overall.mean <- apply(km.obj$centers*km.obj$size,2,sum)/sum(km.obj$size)
+    msB<-sum(km.obj$size*(t(t(km.obj$centers)-overall.mean))^2)/(g-1)
+    list(msB=msB,msW=msW,C.g=msB/msW)
+}
+
+km.olive.stdz.2<-kmeans(olive.stdz[,2:9],2,nstart = 100)
+km.olive.stdz.3<-kmeans(olive.stdz[,2:9],3,nstart = 100)
+km.olive.stdz.4<-kmeans(olive.stdz[,2:9],4,nstart = 100)
+km.olive.stdz.5<-kmeans(olive.stdz[,2:9],5,nstart = 100)
+km.olive.stdz.6<-kmeans(olive.stdz[,2:9],6,nstart = 100)
+km.olive.stdz.7<-kmeans(olive.stdz[,2:9],7,nstart = 100)
+km.olive.stdz.8<-kmeans(olive.stdz[,2:9],8,nstart = 100)
+km.olive.stdz.9<-kmeans(olive.stdz[,2:9],9,nstart = 100)
+km.olive.stdz.10<-kmeans(olive.stdz[,2:9],10,nstart = 100)
+
+c.crit(km.olive.stdz.2) #301.75
+c.crit(km.olive.stdz.3) #275.6649
+c.crit(km.olive.stdz.4) #290.0637
+c.crit(km.olive.stdz.5) #305.2753 This is when Cg is maximized
+c.crit(km.olive.stdz.6) #282.3322
+c.crit(km.olive.stdz.7) #265.1015
+c.crit(km.olive.stdz.8) #256.1535
+c.crit(km.olive.stdz.9) #244.692
+c.crit(km.olive.stdz.10) #233.4239
+
+#show this in graph
+numGroupSearch <- function(features,rng=c(2,10),wilks=T,nstart=100) {
+
+    mn <- rng[1]
+    mx <- rng[2]
+    m.list <- km.list <- vector("list",length=mx-mn+1)
+    cFn <- p.rsq <- rep(NA,mx-mn+1)
+    i <- 0
+    for (k in mn:mx) {
+        i <- i+1
+        km.list[[i]] <- kmeans(features,k,nstart=nstart)
+        U <- as.matrix(features)
+        m.list[[i]] <- manova(U~factor(km.list[[i]]$cluster))
+        if (wilks) { #avoids some degenerate cases
+            p.rsq[i] <- 1-summary(m.list[[i]],test="Wilks")$stats[1,2]
+        }
+        cFn[i] <- c.crit(km.list[[i]])$C.g
+    }
+    return(list(km.list=km.list,m.list=m.list,p.rsq=p.rsq,cFn=cFn))
+}
+
+ngp.olive <- numGroupSearch(olive.stdz[,2:9])
+
+par(mfrow=c(1,2))
+plot(2:10,ngp.olive$p.rsq,type='l',xlab='Number of Clusters',ylab='1-Wilks Lambda')
+abline(v=5,col="red")
+plot(2:10,ngp.olive$cFn,type='l',xlab='Number of Clusters (g)',ylab='C(g)')
+abline(v=5,col="red")
+#Both 1-wilks lambda and Cg yield the same results. They are very consistant in choosing the cluster solution here.
+#For kmean method, when n=5, Cg is maximized;
+```
+
+***Comparing ward to kmeans, both with 5 clustre solution***
+```{r}
+set.seed(2011)
+lbls.ward.4<- cutree(hcl.ward,k=4)
+lbls.ward.5<- cutree(hcl.ward,k=5)
+lbls.ward.6<- cutree(hcl.ward,k=6)
+
+xtabs(~km.olive.stdz.5$cluster+lbls.ward.5)
+
+#write a function to get the maximal agreement
+require(gtools)
+optLabel <- function(src,trg) {
+    #input two sets of labels, find permuation that maximizes agreement
+    #to be complete search, and handle simpler diag eval, trg must have larger # of labels
+    n1 <- length(unique(src))
+    n2 <- length(unique(trg))
+    tbl <- xtabs(~src+trg)
+    best.match <- sum(diag(tbl)) #still works for a non-square matrix.
+    best.perm <- 1:n2
+    allPerms <- permutations(n2,n2)
+    for (i in 1:dim(allPerms)[1]) {
+        cur.match <- sum(diag(tbl[,allPerms[i,]]))
+        if (cur.match>best.match) {
+            best.match <- cur.match
+            best.perm <- allPerms[i,]
+        }
+    }
+    list(best.match=best.match,best.perm=best.perm,best.tbl=tbl[,best.perm])
+}
+
+optLabel(km.olive.stdz.5$cluster,lbls.ward.5)
+optLabel(km.olive.stdz.4$cluster,lbls.ward.5)
+optLabel(km.olive.stdz.6$cluster,lbls.ward.5)
+optLabel(km.olive.stdz.5$cluster,lbls.ward.4)
+optLabel(km.olive.stdz.5$cluster,lbls.ward.6)
+optLabel(km.olive.stdz.4$cluster,lbls.ward.6)
+optLabel(km.olive.stdz.6$cluster,lbls.ward.4)
+optLabel(km.olive.stdz.6$cluster,lbls.ward.6)
+```
+I also tried a range of clusters- one more and 1 less than Cg suggested, which is 4 clusters and 6 clusters. We find that the maximal agreement is 534, which is 6 clusters for both Ward and Kmeans. The maximal agreement is 530 using 5 cluster solution for both Ward and Kmeans in this dataset. Acutually choosing 5 or 6 did not make much significant difference. Therefore, I would consider 5 as the cluster solutions for both methods(I will include more details in the Appendix about 6 clusters). 
+
+
+***Evaluate the distribution of the known demographics for the kmeans and ward cluster solution***
+Do the clusters seem to divide in a manner consistent with demographic differences? Justify your answer by comparing the frequency
+distribution of demographics within each cluster
+
+```{r}
+xtabs(~km.olive.stdz.5$cluster+olive.stdz$region)
+xtabs(~km.olive.stdz.5$cluster+olive.stdz$area)
+
+xtabs(~lbls.ward.5+olive.stdz$region)
+xtabs(~lbls.ward.5+olive.stdz$area)
+
+```
+***Kmean***
+Under kmean method, we can see the first cluster contains all olive oil sample from North region (60 objects); The second cluster contains 98 samples from Sardinia region and only 5 samples from North region; None of South sample is in the second cluster; The third cluster contains all samples from south region; In the Fourth cluster, 81 olive oil samples are from North region and only 7 samples are from South region. In the last cluster, 99 samples are from south region and only 5 are from North region. Overall, the kmean clustering seperate the samples fairly well. Samples from South region are contained in the third and last clusters. All 98 Sardinia samples are contained in the second cluster. Most North samples are fairly split into the first and the fourth cluster. 
+
+By comparing with area, we can see that 50 olive oil samples are from West-Liguria and 10 samples from East-Liguria; In the second cluster, 65 olive oil samples are from Inland-Sardinia area and 33 sample from Coast-Sardinia area. Only 5 samples in the second cluster are from East Liguria. In the third cluster, it mostly contains samples from South-Apulia. In the fourth cluster, it contains 51 samples from Unbria area and 30 samples from East-Liguria area. In the last cluster, it contains 52 olive oil samples from Calabria area, 26 smaples from Sicily, 19 samples from North-Apulia and 2 samples from South-Apulia. Overall, this 5 cluster solution does a fairly good job in separating the groups. Samples from Calabria area are almostly contained in the first cluster. All samples from Coast-Sardinia area are included in the second cluster. All samples from Inland-Sardinia are contained in the second cluster. Almost all the samples from South-Apulia area are included in the third cluster. All samples from Umbria are contaiend in the fourth cluster. All samples from West-Liguria area are in the first cluster.
+
+
+***Ward***
+By looking at the crosstab result, we would say the ward method 5 cluster solution does a good job in differentiate the regions and area. This reinforces our understanding that olive oil samples are well separated by these features.
+The first cluster and second cluster contains all samples from South region; The second cluster contains all the samples from Sardinia region; The third and fourth clusters contains all samples from North region.
+The crosstab comparing the cluster solutions and areas shows that 56 samples from Calabria, 25 samples from North Apulia, 34 samples from Sicily and 8 smaples from south Apulia are in the first cluster. In the second cluster, 198 samples are from South Apulia and only 2 samples are from Sicily. 33 Coast-Sardinia and 65 Inland-Sardinia samples are included in the third cluster. 32 East-Liguria and 51 Umbria samples are contained in the fourth cluster. In the last cluster, we can find 18 samples from East-Liguria and 50 samples from West-Liguria. In another way, we can see that all samples from Calabria are in the first cluster; all samples from Coast-Sardinia are in the third cluster; 32 samples from East-Liguria are in the fourth cluster and the rest 18 samples from East-Liguria are in the last cluster; All samples from Inland-Sardinia are in the third cluster. All samples from North-Apulia are in the first cluster. Almost all samples from Sicility are also in the first cluster. Almost all samples from South-Aqualia are in the second cluster, with only 8 samples in the first cluster. All samples from Umbria are in the fourth cluster and all samples from West-Liguria are in the last cluster. 
+
+
+Overall, both kmeans and ward clustering did a good job so that the clusters seem to divide in a manner consistent with demographic differences.
+
+***plot principal component by using kmean and ward***
+Plots (like pairs) of the first 3 or 4 principle components. Colored by cluster solutions (show different approaches to contrast them)
+```{r}
+pc.olive<- princomp(olive.stdz[,2:9])$scores
+#kmeans
+pairs(pc.olive[,1:4],col=c(1,2,3,4,5)[km.olive.stdz.5$cluster])
+#wards
+pairs(pc.olive[,1:4],col=c(1,2,3,4,5)[lbls.ward.5])
+```
+
+By looking at these two above graphs, I do not see obvious difference when contrast these two approaches in the first 4 principal components.
+
+***Results/Implication***
+
+Based on the dendogram and Cg calculation, I choose five clusters. The crosstab comparison suggests the five clusters divide in a manner consistent with the demographic differences. 
+
+
+
+#Appendix
+Since choosing 6 can get the maximal agreement. So I would like to evaluate the distribution of the known demographics for the kmeans and ward cluster solution using 6 here.
+```{r}
+xtabs(~km.olive.stdz.6$cluster+olive.stdz$region)
+xtabs(~km.olive.stdz.6$cluster+olive.stdz$area)
+
+xtabs(~lbls.ward.6+olive.stdz$region)
+xtabs(~lbls.ward.6+olive.stdz$area)
+```
+***Kmeans**
+The crosstab results shows that almost all samples from South regions are in the first,second, and third clusters. Only 4 samples from South are in the last cluster.
+Samples from Sardinia region are all contained in the fifth cluster. Almost all samples from North are contained in the fourth and last clusters. 
+The crosstab results did not improve a lot comparing the 5 cluster solution.
+
+***Ward***
+The crosstab results shows that samples from South are spread among first, second and third clusters. Samples from Sardinia are contained solely in the fourth cluster; Samples from North region are contained in the last two clusters. Again, the results did not improve a lot comparing the 5 cluster solution.
+
+```{r}
+#kmeans
+pairs(pc.olive[,1:4],col=c(1,2,3,4,5)[km.olive.stdz.5$cluster])
+#wards
+pairs(pc.olive[,1:4],col=c(1,2,3,4,5)[lbls.ward.5])
+```
+The plots (like pairs) of the first 3 or 4 principle components colored by cluster solutions do not show significant difference between two approaches.
+
+
+
